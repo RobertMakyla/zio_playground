@@ -2,15 +2,13 @@ name := "zio_playground"
 
 version := "1.0"
 
-scalaVersion := "2.12.0"
-
+scalaVersion := "2.13.8"
 
 libraryDependencies ++= {
-  val scalaTestV       = "3.0.1"
-  val scalaCheckVersion = "1.13.4"
+  val zioVersion = "2.0.0-M4"
 
   Seq(
-    "org.scalatest"  %% "scalatest"  % scalaTestV % "test",
-    "org.scalacheck" %% "scalacheck" % scalaCheckVersion % "test"
+    "dev.zio" %% "zio" % zioVersion,
+    "dev.zio" %% "zio-streams" % zioVersion
   )
 }
