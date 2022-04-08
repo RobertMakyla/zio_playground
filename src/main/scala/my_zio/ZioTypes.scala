@@ -57,5 +57,48 @@ object ErrorRecovery extends ZIOAppDefault {
 
     res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
   }
+}
+
+object Loops extends ZIOAppDefault {
+
+  import Console._
+
+  // Couldn't do it with Futures cause when you have a Future it's already running - no way to restart it.
+  // ZIO - is completely lazy
+  def loop[R, E, A](n: Int)(effect: ZIO[R, E, A]): ZIO[R, E, A] = {
+    if (n <= 0) effect else effect *> loop(n - 1)(effect)
+  }
+
+  def run: ZIO[Has[Console], IOException, Unit] =
+    loop(10)(printLine("hello"))
+}
+
+object PromptName extends ZIOAppDefault {
+
+  import Console._
+
+  //Implement something like:
+  //
+  //   printLine("what is you name ?") *>
+  //   readLine *>
+  //   printLine(s" hello $name")
+  //
+  def run: ZIO[Has[Console], IOException, Unit] = forComprehension
+
+  def classicWay: ZIO[Has[Console], IOException, Unit] =
+    printLine("what is you name ?") *> // zipRight is also a flatMap
+      readLine
+        .flatMap { // flatMap to get a value and use it
+          name =>
+            printLine(s" hello $name")
+        }
+
+  def forComprehension: ZIO[Has[Console], IOException, Unit] =
+    for {
+      _    <- printLine("what is you name ?")
+      name <- readLine
+      _    <- printLine(s"hello $name")
+    } yield ()
 
 }
+
