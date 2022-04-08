@@ -1,6 +1,7 @@
 package my_zio
 
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 import zio._
 
@@ -20,6 +21,7 @@ object ZioTypes {
 object HelloWorld extends ZIOAppDefault {
 
   import Console._
+
   def run: ZIO[Has[Console], IOException, Unit] = printLine("Hello, World!")
 
   //  map(_ => 1) or as(): if we need to change success type:
@@ -38,8 +40,9 @@ object ErrorRecovery extends ZIOAppDefault {
 
   import Console._
 
-  def failablePrint(s: String):            ZIO[Has[Console], IOException, Unit] = printLine(s)
-  def unfailablePrint(s: String):          ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.succeed(()) // orElse() - runs the second effect if the first one failed.
+  def failablePrint(s: String): ZIO[Has[Console], IOException, Unit] = printLine(s)
+
+  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.succeed(()) // orElse() - runs the second effect if the first one failed.
   def unfailablePrintWithCatch(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s).catchAllCause(cause => unfailablePrint(cause.prettyPrint)) // catchAll[Cause] catches error and returns second effect
 
   val failWithString: IO[String, Nothing] = ZIO.fail[String]("BOOM")
@@ -95,9 +98,9 @@ object PromptName extends ZIOAppDefault {
 
   def forComprehension: ZIO[Has[Console], IOException, Unit] =
     for {
-      _    <- printLine("what is you name ?")
+      _ <- printLine("what is you name ?")
       name <- readLine
-      _    <- printLine(s"hello $name")
+      _ <- printLine(s"hello $name")
     } yield ()
 
 }
@@ -108,15 +111,85 @@ object NumberGuesser extends ZIOAppDefault {
   import Random._
 
   def analyze(guess: String, answer: Int): ZIO[Has[Console], IOException, Unit] = {
-    if(guess == answer.toString) printLine("OK :)") else printLine(s"Sorry, the answer was $answer")
+    if (guess == answer.toString) printLine("OK :)") else printLine(s"Sorry, the answer was $answer")
   }
 
   def run: ZIO[ZEnv, IOException, Unit] = {
-    for{
-      randomInt <- nextIntBetween(1,4) // from zio.Random
-      _         <- printLine("Please write a number 0 to 3 ...")
-      guess     <- readLine
-      _         <- analyze(guess, randomInt)
+    for {
+      randomInt <- nextIntBetween(1, 4) // from zio.Random
+      _ <- printLine("Please write a number 0 to 3 ...")
+      guess <- readLine
+      _ <- analyze(guess, randomInt)
+    } yield ()
+  }
+
+}
+
+object AlarmDuration extends ZIOAppDefault {
+
+  import Console._
+  import java.io.IOException
+
+  lazy val getAlarmDuration: ZIO[ZEnv, IOException, Duration] = {
+
+    def parseDuration(input: String): IO[NumberFormatException, Duration] =
+      ZIO.attempt(input.toInt) // ZIO.attempt makes ZIO effect from risky code. Task = ZIO[Any, Throwable, A]
+        .map(i => i.seconds)
+        .refineToOrDie[NumberFormatException] // narrow the error type or make the fiber die !!!
+
+    def fallback(input: String): ZIO[ZEnv, IOException, Duration] =
+      printLine(s"You entered $input which is not valid for seconds, try again!") *> getAlarmDuration
+
+    for {
+      _ <- printLine("Please enter the number of seconds to sleep: ")
+      input <- readLine
+      duration <- parseDuration(input) orElse fallback(input) // orElse - runs the second effect if the first one fails
+    } yield duration
+  }
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for {
+      duration <- getAlarmDuration
+      //fiber <- (print(".") *> ZIO.sleep(1.seconds)).repeatN(duration.getSeconds.toInt) // just sleeping for n seconds and printing dots - no fork !
+      //fiber <- (print(".") *> ZIO.sleep(1.seconds)).forever // fiber with effect repeating forever - the following code would never run - no fork !
+      fiber <- (print(".") *> ZIO.sleep(1.seconds)).forever.fork // fork fiber with effect repeating forever - it runs in the background as a separate fiber
+      _ <- ZIO.sleep(duration) // just sleeping for n seconds
+      _ <- printLine("Time's up !")
+      _ <- fiber.interrupt // elegant
+    } yield ()
+  }
+
+}
+
+object AsyncPrinting extends ZIOAppDefault {
+
+  import Console._
+  import Random._
+  import Duration._
+  import java.io.IOException
+
+  def randomDuration: ZIO[ZEnv, Nothing, zio.Duration] =
+    for {
+      //millisInt <- nextIntBetween(100, 200)
+      millisInt <- ZIO.succeed(100)
+      duration <- ZIO.succeed(Duration.apply(millisInt, TimeUnit.MILLISECONDS))
+    } yield duration
+
+  def printingEffect(s: String): ZIO[ZEnv, IOException, Unit] =
+    for {
+      duration <- randomDuration
+      _ <- print(s)
+      _ <- ZIO.sleep(duration)
+    } yield ()
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for {
+      fiberA <- printingEffect("| ").forever.fork
+      fiberB <- printingEffect("- ").forever.fork
+      _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
+      _ <- printLine("Time's up !")
+      _ <- fiberA.interrupt
+      _ <- fiberB.interrupt
     } yield ()
   }
 
