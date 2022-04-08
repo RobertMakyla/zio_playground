@@ -102,3 +102,22 @@ object PromptName extends ZIOAppDefault {
 
 }
 
+object NumberGuesser extends ZIOAppDefault {
+
+  import Console._
+  import Random._
+
+  def analyze(guess: String, answer: Int): ZIO[Has[Console], IOException, Unit] = {
+    if(guess == answer.toString) printLine("OK :)") else printLine(s"Sorry, the answer was $answer")
+  }
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for{
+      randomInt <- nextIntBetween(1,4) // from zio.Random
+      _         <- printLine("Please write a number 0 to 3 ...")
+      guess     <- readLine
+      _         <- analyze(guess, randomInt)
+    } yield ()
+  }
+
+}
