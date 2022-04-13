@@ -192,5 +192,16 @@ object AsyncPrinting extends ZIOAppDefault {
       _ <- fiberB.interrupt
     } yield ()
   }
+}
 
+object SyncPrinting extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+  import java.io.IOException
+
+  def keepPrintingA: ZIO[ZEnv, IOException, Unit] = print("a ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
+  def keepPrintingB: ZIO[ZEnv, IOException, Unit] = print("b ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
+
+  def run: ZIO[ZEnv, IOException, Unit] = keepPrintingA.forever
 }
