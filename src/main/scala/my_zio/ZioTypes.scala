@@ -3,7 +3,7 @@ package my_zio
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-import zio._
+import zio.{ZEnv, _}
 
 object ZioTypes {
 
@@ -125,6 +125,19 @@ object NumberGuesser extends ZIOAppDefault {
 
 }
 
+object ParallelCalculation extends ZIOAppDefault {
+
+  import Console._
+
+  def run: ZIO[ZEnv, IOException, Unit] = for {
+    fiber1 <- (printLine("calculating 1 in parallel") *> ZIO.succeed(1)).fork // Returns an effect that forks this effect into its own separate fiber, ...
+    fiber2 <- (printLine("calculating 2 in parallel") *> ZIO.succeed(2)).fork // ... returning the fiber immediately, without waiting for it to begin executing the effect.
+    a <- fiber1.join // Joins the fiber, which suspends the joining fiber until the result of the fiber has been determined.
+    b <- fiber2.join
+    _ <- printLine("Sum: " + (a + b))
+  } yield ()
+}
+
 object AlarmDuration extends ZIOAppDefault {
 
   import Console._
@@ -164,28 +177,13 @@ object AlarmDuration extends ZIOAppDefault {
 object AsyncPrinting extends ZIOAppDefault {
 
   import Console._
-  import Random._
   import Duration._
   import java.io.IOException
 
-  def randomDuration: ZIO[ZEnv, Nothing, zio.Duration] =
-    for {
-      //millisInt <- nextIntBetween(100, 200)
-      millisInt <- ZIO.succeed(100)
-      duration <- ZIO.succeed(Duration.apply(millisInt, TimeUnit.MILLISECONDS))
-    } yield duration
-
-  def printingEffect(s: String): ZIO[ZEnv, IOException, Unit] =
-    for {
-      duration <- randomDuration
-      _ <- print(s)
-      _ <- ZIO.sleep(duration)
-    } yield ()
-
   def run: ZIO[ZEnv, IOException, Unit] = {
     for {
-      fiberA <- printingEffect("| ").forever.fork // it forks this effect into its own separate fiber,
-      fiberB <- printingEffect("- ").forever.fork
+      fiberA <- (print("o ") *> ZIO.sleep(100.millisecond)).forever.fork // it forks this effect into its own separate fiber,
+      fiberB <- (print("| ") *> ZIO.sleep(100.millisecond)).forever.fork
       _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
       _ <- printLine("Time's up !")
       _ <- fiberA.interrupt
@@ -200,8 +198,72 @@ object SyncPrinting extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  def keepPrintingA: ZIO[ZEnv, IOException, Unit] = print("a ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
-  def keepPrintingB: ZIO[ZEnv, IOException, Unit] = print("b ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
+  def keepPrintingA: ZIO[ZEnv, IOException, Unit] = print("o ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
+  def keepPrintingB: ZIO[ZEnv, IOException, Unit] = print("| ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
 
   def run: ZIO[ZEnv, IOException, Unit] = keepPrintingA.forever
+}
+
+/*
+ * Build a multi-fiber program that estimates the value of `pi`. Print out ongoing estimates continuously until the estimation is complete.
+ *
+ * Computing Pi with Monte Carlo method
+ *
+ * |------|
+ * | (  ) |
+ * |------|
+ *
+ * Pi = (points inside circle / total points) * 4
+ * And the more random points we get the more correct Pi we calculate
+ *
+ * info: https://www.101computing.net/estimating-pi-using-the-monte-carlo-method/
+ */
+
+class ComputePi  {
+
+  import Random._
+  import Console._
+  import Duration._
+
+  final case class PointsState(inTheCircle: Long, total: Long)
+
+  // Pi = (points inside circle / points inside square) *4
+  def estimatePi(inside: Long, total: Long): Double = (inside.toDouble / total.toDouble) * 4
+
+  def randomTuple: ZIO[ZEnv, Nothing, (Double, Double)] = nextDouble zip nextDouble // zip() is making a tuple
+
+  def isInsideCircle(x: Double, y: Double): Boolean = Math.sqrt(x * x + y * y) <= 1
+
+  /** Ref is a wrapper for variables, lazy and composable with ZIO effects
+   Ref can be read/updated 100% the isolated way - atomically - without any locking !*/
+  def increaseStateNumbers(ref: Ref[PointsState]): ZIO[ZEnv, IOException, Unit] = (
+      for {
+        tuple: (Double, Double) <- randomTuple
+        (x, y)                  = tuple
+        inside                  = if (isInsideCircle(x, y)) 1 else 0
+        _                       <- ref.update(state => PointsState(state.inTheCircle + inside, state.total + 1)) // update: Atomically modifies the `ZRef`
+      } yield ()
+    ).orElse(ZIO.fail(new IOException("increase failed")))
+
+  def printCurrentPi(ref: Ref[PointsState]) =
+    for {
+      state <- ref.get
+      _ <- printLine("" + estimatePi(state.inTheCircle, state.total))
+    } yield ()
+
+  def run: ZIO[ZEnv, IOException, Unit] =
+    for {
+      ref     <- Ref.make(PointsState(0L, 0L)) // making a new Ref
+      worker: ZIO[ZEnv, IOException, Unit]   = increaseStateNumbers(ref).forever // "=" means that we are not putting it yet into ZIO effects
+      workers: List[ZIO[ZEnv, IOException, Unit]] = List.fill(10)(worker) // List of ZIO effects
+      fiber1   <- ZIO.forkAll(workers) // forking a list of workers
+      fiber2   <- (printCurrentPi(ref) *> ZIO.sleep(1.second)).forever.fork
+      _        <- ZIO.sleep(30.seconds)
+      _        <- fiber1.interrupt
+      _        <- fiber2.interrupt
+    } yield ()
+}
+
+object ComputePiApp extends ZIOAppDefault {
+  def run: ZIO[ZEnv, IOException, Unit] = (new ComputePi).run
 }
