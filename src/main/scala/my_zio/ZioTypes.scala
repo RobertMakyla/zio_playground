@@ -152,7 +152,7 @@ object AlarmDuration extends ZIOAppDefault {
       duration <- getAlarmDuration
       //fiber <- (print(".") *> ZIO.sleep(1.seconds)).repeatN(duration.getSeconds.toInt) // just sleeping for n seconds and printing dots - no fork !
       //fiber <- (print(".") *> ZIO.sleep(1.seconds)).forever // fiber with effect repeating forever - the following code would never run - no fork !
-      fiber <- (print(".") *> ZIO.sleep(1.seconds)).forever.fork // fork fiber with effect repeating forever - it runs in the background as a separate fiber
+      fiber <- (print(".") *> ZIO.sleep(1.seconds)).forever.fork // it forks this effect into its own separate fiber,
       _ <- ZIO.sleep(duration) // just sleeping for n seconds
       _ <- printLine("Time's up !")
       _ <- fiber.interrupt // elegant
@@ -184,7 +184,7 @@ object AsyncPrinting extends ZIOAppDefault {
 
   def run: ZIO[ZEnv, IOException, Unit] = {
     for {
-      fiberA <- printingEffect("| ").forever.fork
+      fiberA <- printingEffect("| ").forever.fork // it forks this effect into its own separate fiber,
       fiberB <- printingEffect("- ").forever.fork
       _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
       _ <- printLine("Time's up !")
