@@ -235,7 +235,7 @@ class ComputePi  {
   def isInsideCircle(x: Double, y: Double): Boolean = Math.sqrt(x * x + y * y) <= 1
 
   /** Ref is a wrapper for variables, lazy and composable with ZIO effects
-   Ref can be read/updated 100% the isolated way - atomically - without any locking !*/
+   Ref can be read/updated 100% the isolated way - atomically - without using any locking !*/
   def increaseStateNumbers(ref: Ref[PointsState]): ZIO[ZEnv, IOException, Unit] = (
       for {
         tuple: (Double, Double) <- randomTuple
@@ -256,7 +256,7 @@ class ComputePi  {
       ref     <- Ref.make(PointsState(0L, 0L)) // making a new Ref
       worker: ZIO[ZEnv, IOException, Unit]   = increaseStateNumbers(ref).forever // "=" means that we are not putting it yet into ZIO effects
       workers: List[ZIO[ZEnv, IOException, Unit]] = List.fill(10)(worker) // List of ZIO effects
-      fiber1   <- ZIO.forkAll(workers) // forking a list of workers
+      fiber1   <- ZIO.forkAll(workers) // forking a list of workers into one separate fiber
       fiber2   <- (printCurrentPi(ref) *> ZIO.sleep(1.second)).forever.fork
       _        <- ZIO.sleep(30.seconds)
       _        <- fiber1.interrupt
@@ -266,4 +266,100 @@ class ComputePi  {
 
 object ComputePiApp extends ZIOAppDefault {
   def run: ZIO[ZEnv, IOException, Unit] = (new ComputePi).run
+}
+
+
+/**
+ * -- Dining Philosophers --
+ *
+ * STM = Software Transaction Memory solution - solving concurrency problem (race condition/deadlocks) without using locks/
+ */
+class SmtDiningPhilosophers {
+  import stm._
+  import Console._
+
+  class Fork
+
+  /**
+   * Ref  - isolated operation in the context of the Ref
+   * TRef - isolated operations in the context of a transaction !!
+   *        I can modify many TRefs in a single transaction.
+   *
+   * STM[Failure, Success] - transaction type
+   *                        it can compose with map/flatMap/zipRight
+   */
+  case class Placement(left: TRef[Option[Fork]], right: TRef[Option[Fork]]) // TRef comes from zio.smt
+
+  case class Roundtable(seats: List[Placement])
+
+  /**
+   * STM = transaction on getting the 2 forks (no need to use locks around both forks)
+   * without STM we would need to do it on some order :/ eg: lock f1 and check if it's available before we get f2:/
+   */
+  def takeForks(left: TRef[Option[Fork]], right: TRef[Option[Fork]]): STM[Nothing, (Fork, Fork)] =
+    for {
+      leftFork <- left.get.collect { case Some(fork) => fork } // if the value does not match the PartialFunction, STM makes it retry until it does !
+      rightFork <- right.get.collect { case Some(fork) => fork } // it's complete when both forks are available !
+      _ <- left.set(None)
+      _ <- right.set(None)
+    } yield (leftFork, rightFork)
+
+  /**
+   * STM = transaction on putting the 2 forks
+   */
+  def putForks(left: TRef[Option[Fork]], right: TRef[Option[Fork]])(tuple: (Fork, Fork)): STM[Nothing, Unit] = {
+    val (l, r) = tuple
+    for{
+      _ <- right.set(Some(r))
+      _ <- left.set(Some(l))
+    } yield ()
+  }
+
+  def setupTable(size: Int): ZIO[Any, Nothing, Roundtable] = {
+    def makeFork: USTM[TRef[Option[Fork]]]= TRef.make[Option[Fork]](Some(new Fork)) //TRef.make gives you an STM
+
+    (
+      for {
+        allForks0: Seq[TRef[Option[Fork]]] <- STM.foreach(0 to size)(i => makeFork) //STM.foreach(list)(_ => STM[A])  gives   STM[Seq[A]]
+        allForks = allForks0 ++ List(allForks0(0))
+        placements = (allForks zip allForks.drop(1)).map {
+          case (l, r) => Placement(l, r)
+        }
+      } yield Roundtable(placements.toList)
+     ).commit // you need to call STM.commit in order to get ZIO effect
+  }
+
+  def eat(philosopher: Int, roundtable: Roundtable): ZIO[Has[Console], IOException, Unit] = {
+    val placement = roundtable.seats(philosopher)
+
+    val leftFork  = placement.left
+    val rightFork = placement.right
+
+    for {
+      forks <- takeForks(leftFork, rightFork).commit
+      _     <- printLine(s"Philosopher ${philosopher} eating...")
+      _     <- putForks(leftFork, rightFork)(forks).commit
+      _     <- printLine(s"Philosopher ${philosopher} is done eating")
+    } yield ()
+  }
+
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    val count = 10
+
+    def eaters(table: Roundtable): Iterable[ZIO[Has[Console], IOException, Unit]] =
+      (0 to count).map(i => eat(i, table))
+
+    for {
+      table <- setupTable(count)
+      fiber <- ZIO.forkAll(eaters(table)) // forking a list of ZIOs into 1 separate fiber
+      _     <- fiber.join
+      _     <- printLine("All philosophers have eaten!")
+    } yield ()
+  }
+
+}
+
+object SmtDiningPhilosophersApp extends ZIOAppDefault {
+  def run: ZIO[ZEnv, IOException, Unit] = (new SmtDiningPhilosophers).run
 }
