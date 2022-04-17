@@ -125,6 +125,20 @@ object NumberGuesser extends ZIOAppDefault {
 
 }
 
+object HelloFibers extends ZIOAppDefault {
+
+  import Console._
+
+  def run: ZIO[ZEnv, IOException, Unit] = for {
+    _          <- printLine("get up")
+    fiber1     <- printLine("brush your teeth").fork
+    fiber2     <- printLine("get dressed").fork
+    fiberReady = fiber1.zip(fiber2) // nice alias for zipping: <*>
+    _          <- fiberReady.join // joins wait for fiber 1 and 2 (zipped together) to be complete before we continue
+    _          <- printLine("ready to go")
+  } yield ()
+}
+
 object ParallelCalculation extends ZIOAppDefault {
 
   import Console._
@@ -132,7 +146,7 @@ object ParallelCalculation extends ZIOAppDefault {
   def run: ZIO[ZEnv, IOException, Unit] = for {
     fiber1 <- (printLine("calculating 1 in parallel") *> ZIO.succeed(1)).fork // Returns an effect that forks this effect into its own separate fiber, ...
     fiber2 <- (printLine("calculating 2 in parallel") *> ZIO.succeed(2)).fork // ... returning the fiber immediately, without waiting for it to begin executing the effect.
-    a <- fiber1.join // Joins the fiber, which suspends the joining fiber until the result of the fiber has been determined.
+    a <- fiber1.join // suspends the main fiber until the result of joining fiber has been determined.
     b <- fiber2.join
     _ <- printLine("Sum: " + (a + b))
   } yield ()
