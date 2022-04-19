@@ -228,7 +228,7 @@ object SyncPrintingRef extends ZIOAppDefault {
     for {
       actualRef <- ref.get
       _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.succeed(())
-      _ <- ZIO.sleep(100.millisecond)
+//    _ <- ZIO.sleep(100.millisecond)
     } yield ()
 
   def run: ZIO[ZEnv, IOException, Unit] = {
@@ -236,8 +236,36 @@ object SyncPrintingRef extends ZIOAppDefault {
       ref <- Ref.make(true)
       fiberA <- printSyncOnRef(true, ref, "o ").forever.fork // it forks this effect into its own separate fiber,
       fiberB <- printSyncOnRef(false, ref, "| ").forever.fork // it forks this effect into its own separate fiber,
-      _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
+      _ <- ZIO.sleep(1.seconds)
       _ <- printLine("Time's up !")
+      _ <- fiberA.interrupt
+      _ <- fiberB.interrupt
+    } yield ()
+  }
+}
+
+object SemaphoreExample extends ZIOAppDefault {
+
+  import Console._
+  import java.io.IOException
+
+  /**
+   * Semaphore.withPermit() -
+   *
+   * Executes the specified effect, acquiring a permit
+   * immediately before the effect begins execution
+   * and releasing it immediately after the effect completes execution,
+   */
+  def printOnSemaphore(sem: Semaphore, s: String): ZIO[ZEnv, IOException, Unit] =
+    sem.withPermit(print(s))
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for {
+      singlePermitSemaphore <- Semaphore.make(1) // Making a semaphore with 1 permit
+      fiberA <- printOnSemaphore(singlePermitSemaphore, "o ").forever.fork
+      fiberB <- printOnSemaphore(singlePermitSemaphore, "| ").forever.fork
+      _ <- ZIO.sleep(100.millisecond)
+      _ <- printLine("Semaphore can only make sure that calculation is in progress by maximum 1 fiber - but task order is still pretty random")
       _ <- fiberA.interrupt
       _ <- fiberB.interrupt
     } yield ()
