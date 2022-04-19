@@ -218,6 +218,32 @@ object SyncPrinting extends ZIOAppDefault {
   def run: ZIO[ZEnv, IOException, Unit] = keepPrintingA.forever
 }
 
+object SyncPrintingRef extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+  import java.io.IOException
+
+  def printSyncOnRef(expectedRef: Boolean, ref: Ref[Boolean], s: String): ZIO[ZEnv, IOException, Unit] =
+    for {
+      actualRef <- ref.get
+      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.succeed(())
+      _ <- ZIO.sleep(100.millisecond)
+    } yield ()
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for {
+      ref <- Ref.make(true)
+      fiberA <- printSyncOnRef(true, ref, "o ").forever.fork // it forks this effect into its own separate fiber,
+      fiberB <- printSyncOnRef(false, ref, "| ").forever.fork // it forks this effect into its own separate fiber,
+      _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
+      _ <- printLine("Time's up !")
+      _ <- fiberA.interrupt
+      _ <- fiberB.interrupt
+    } yield ()
+  }
+}
+
 /*
  * Build a multi-fiber program that estimates the value of `pi`. Print out ongoing estimates continuously until the estimation is complete.
  *
