@@ -254,7 +254,10 @@ object SemaphoreExample extends ZIOAppDefault {
    *
    * Executes the specified effect, acquiring a permit
    * immediately before the effect begins execution
-   * and releasing it immediately after the effect completes execution,
+   * and releasing it immediately after the effect completes execution.
+   *
+   * When the acquire operation cannot be performed, due to insufficient permits,
+   * such task is placed in internal suspended fibers queue and will be awaken when permits value is sufficient:
    */
   def printOnSemaphore(sem: Semaphore, s: String): ZIO[ZEnv, IOException, Unit] =
     sem.withPermit(print(s))
@@ -270,6 +273,25 @@ object SemaphoreExample extends ZIOAppDefault {
       _ <- fiberB.interrupt
     } yield ()
   }
+}
+
+/**
+ * Promise can be used when we want to wait for sth to happen (1 fiber can wait for another one)
+ */
+object PromiseExample extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+
+  def run: ZIO[ZEnv, IOException, Unit] =
+    for {
+      promise <- Promise.make[Nothing, String] // create a promise
+          sendString = (ZIO.succeed("hello world") <* ZIO.sleep(2.second)).flatMap(s => promise.succeed(s)) // complete the promise after 1 sec
+          getAndPrint = promise.await.flatMap(s => printLine(s)) // await for the promise and print the result
+      fiberA <- sendString.fork
+      fiberB <- getAndPrint.fork
+      _ <- (fiberA <*> fiberB).join
+    } yield ()
 }
 
 /*
