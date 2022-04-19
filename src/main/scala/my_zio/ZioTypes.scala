@@ -79,24 +79,24 @@ object Loops extends ZIOAppDefault {
 object PromptName extends ZIOAppDefault {
 
   import Console._
-
+  import Duration._
   //Implement something like:
   //
   //   printLine("what is you name ?") *>
   //   readLine *>
   //   printLine(s" hello $name")
   //
-  def run: ZIO[Has[Console], IOException, Unit] = forComprehension
+  def run: ZIO[ZEnv, IOException, Unit] = forComprehension
 
-  def classicWay: ZIO[Has[Console], IOException, Unit] =
-    printLine("what is you name ?") *> // zipRight is also a flatMap
+  def classicWay: ZIO[ZEnv, IOException, Unit] =
+    printLine("what is you name ?") *> // *>, or zipRight is also a flatMap, <* also sequences an effect but ignores the value produced by the second effect
       readLine
         .flatMap { // flatMap to get a value and use it
           name =>
             printLine(s" hello $name")
         }
 
-  def forComprehension: ZIO[Has[Console], IOException, Unit] =
+  def forComprehension: ZIO[ZEnv, IOException, Unit] =
     for {
       _ <- printLine("what is you name ?")
       name <- readLine
