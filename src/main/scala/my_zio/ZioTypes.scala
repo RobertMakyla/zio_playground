@@ -218,6 +218,12 @@ object SyncPrinting extends ZIOAppDefault {
   def run: ZIO[ZEnv, IOException, Unit] = keepPrintingA.forever
 }
 
+/**
+ * Ref - set/get - mutable reference to immutable data (atomic reference)
+ * Ref.Synchronized (former RefM) - has the same methods but allows to calculate effects within update() and use the effect's result to update the value.
+ *                                 Ref.Synchronized.modifyZIO(state -> effect)
+ *                                 during calculations all the Writes are blocked, Reads are permitted
+ */
 object SyncPrintingRef extends ZIOAppDefault {
 
   import Console._
