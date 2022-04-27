@@ -245,13 +245,18 @@ object AsyncPrinting extends ZIOAppDefault {
   import java.io.IOException
 
   def run: ZIO[ZEnv, IOException, Unit] = {
+    val effect1 = print("o ") *> ZIO.sleep(100.millisecond)
+    val effect2 = print("| ") *> ZIO.sleep(100.millisecond)
+
     for {
-      fiberA <- (print("o ") *> ZIO.sleep(100.millisecond)).forever.fork // it forks this effect into its own separate fiber,
-      fiberB <- (print("| ") *> ZIO.sleep(100.millisecond)).forever.fork
-      _ <- ZIO.sleep(10.seconds) // just sleeping for n seconds
+      fiber <- effect1.race(effect2).forever.fork // more elegant way than using low-level fibers
+      //      fiberA <- effect1.forever.fork // it forks this effect into its own separate fiber,
+      //      fiberB <- effect2.forever.fork
+      _ <- ZIO.sleep(3.seconds) // just sleeping for n seconds
       _ <- printLine("Time's up !")
-      _ <- fiberA.interrupt
-      _ <- fiberB.interrupt
+      _ <- fiber.interrupt
+//      _ <- fiberA.interrupt
+//      _ <- fiberB.interrupt
     } yield ()
   }
 }
