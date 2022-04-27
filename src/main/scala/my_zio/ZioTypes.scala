@@ -2,8 +2,9 @@ package my_zio
 
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-
 import zio.{ZEnv, _}
+
+import scala.annotation.tailrec
 
 object ZioTypes {
 
@@ -44,7 +45,7 @@ object ErrorRecovery extends ZIOAppDefault {
   /** ZIO.absolve is oposite to either and turns an ZIO[R, Nothing, Either[E, A]] into a ZIO[R, E, A]: */
 
   def failablePrint(s: String): ZIO[Has[Console], IOException, Unit] = printLine(s)
-  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.succeed(()) // orElse() - try another effect if the first one fails.
+  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.unit // orElse() - try another effect if the first one fails.
   def unfailablePrintWithCatch(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s).catchAllCause(cause => unfailablePrint(cause.prettyPrint)) // catchAll[Cause] catches error and returns second effect
 
   val failWithString: IO[String, Nothing] = ZIO.fail[String]("BOOM")
@@ -202,6 +203,18 @@ object ParallelCalculation extends ZIOAppDefault {
   } yield ()
 }
 
+object LoopWithZIO extends ZIOAppDefault {
+
+  def loopWithExplicitRecursion(from: Int, to: Int): ZIO[ZEnv, IOException, Unit] = {
+    if (from <= to) Console.printLine(s"$from") *> loopWithExplicitRecursion(from + 1, to) else ZIO.unit
+  }
+
+  def loopZIO(from: Int, to: Int) =
+    ZIO.loop(from)(_ <= to, _ + 1)(i => Console.printLine(s"$i")) // ZIO.loopDiscard() works the same but result is Unit as it discards all the result
+
+  def run = loopWithExplicitRecursion(1, 3) *> loopZIO(4, 6)
+}
+
 object AlarmDuration extends ZIOAppDefault {
 
   import Console._
@@ -288,7 +301,8 @@ object SyncPrintingRef extends ZIOAppDefault {
   def printSyncOnRef(expectedRef: Boolean, ref: Ref[Boolean], s: String): ZIO[ZEnv, IOException, Unit] =
     for {
       actualRef <- ref.get
-      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.succeed(())
+//      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.unit
+      _ <-ZIO.ifZIO(ZIO.succeed(actualRef == expectedRef))(onTrue = print(s) *> ref.update(!_), onFalse =  ZIO.unit)
 //    _ <- ZIO.sleep(100.millisecond)
     } yield ()
 
