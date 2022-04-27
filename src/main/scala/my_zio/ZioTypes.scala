@@ -40,9 +40,11 @@ object ErrorRecovery extends ZIOAppDefault {
 
   import Console._
 
-  def failablePrint(s: String): ZIO[Has[Console], IOException, Unit] = printLine(s)
+  def unfaillableEither: ZIO[Any, Nothing, Either[Exception, Nothing]] = ZIO.fail(new Exception("boom")).either // .either changes possible error and result to unfailable Either[error, result)]
+  /** ZIO.absolve is oposite to either and turns an ZIO[R, Nothing, Either[E, A]] into a ZIO[R, E, A]: */
 
-  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.succeed(()) // orElse() - runs the second effect if the first one failed.
+  def failablePrint(s: String): ZIO[Has[Console], IOException, Unit] = printLine(s)
+  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.succeed(()) // orElse() - try another effect if the first one fails.
   def unfailablePrintWithCatch(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s).catchAllCause(cause => unfailablePrint(cause.prettyPrint)) // catchAll[Cause] catches error and returns second effect
 
   val failWithString: IO[String, Nothing] = ZIO.fail[String]("BOOM")
@@ -55,8 +57,16 @@ object ErrorRecovery extends ZIOAppDefault {
         unfailablePrint("I will never be printed")
 
 
-    // fold(): if I want to get rid of failure :
+    /**
+     * fold(): if I want to get rid of failure
+     * it handles success and failure in noneffectual way
+     */
     val exitCode: URIO[Has[Console], Int] = res.fold(err => -1, success => 0)
+
+    /**
+     * foldZIO handles both success and failure in effectual way
+     */
+    val exitCodeFromEffects: ZIO[Has[Console], Nothing, Int] = res.foldZIO(err => ZIO.succeed(-1), success => ZIO.succeed(1))
 
     res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
   }
@@ -89,7 +99,7 @@ object PromptName extends ZIOAppDefault {
   def run: ZIO[ZEnv, IOException, Unit] = forComprehension
 
   def classicWay: ZIO[ZEnv, IOException, Unit] =
-    printLine("what is you name ?") *> // *>, or zipRight is also a flatMap, <* also sequences an effect but ignores the value produced by the second effect
+    printLine("what is you name ?") *> // '*>', or zipRight is also a flatMap. However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
       readLine
         .flatMap { // flatMap to get a value and use it
           name =>
@@ -104,6 +114,46 @@ object PromptName extends ZIOAppDefault {
     } yield ()
 
 }
+
+/**
+ * instead of low-level Fibers we should use high-lever parallel operations
+ */
+object ParallelOperations extends ZIOAppDefault {
+
+  import Console._
+  import Random._
+
+
+  def run: ZIO[ZEnv, IOException, Unit] = {
+    for {
+      _ <- printLine("I go first").zip(printLine(", I go second")) // zipping 2 effects into one (sequentially), making a tuple of results if there are any
+      _ <- printLine("am I first ?").zipPar(printLine(" or maybe I am first ?")) // zipping 2 effects into one (parallel)
+
+      chunkOfEffects = NonEmptyChunk(ZIO.succeed(1), ZIO.succeed(2), ZIO.succeed("abc"))
+      chunkOfValues = NonEmptyChunk(1, 2, "abc")
+
+      res1 <- ZIO.collectAllPar(chunkOfEffects) // calculating in parallel, returning in the right order
+      _ <- printLine("collectAllPar: " + res1)
+
+      res2 <- ZIO.foreachPar(chunkOfValues)(x => ZIO.succeed(x.toString.toUpperCase)) // applying function in parallel, returning in the right order
+      _ <- printLine("foreachPar: " + res2)
+
+      res3 <- ZIO.reduceAllPar(ZIO.succeed(0), chunkOfEffects)((a,b) => a.toString + b.toString) // reduces effects into 1 effect, in parallel
+      _ <- printLine("reduceAllPar: " + res3)
+
+      res4 <- ZIO.mergeAllPar(chunkOfEffects)("0")((a,b) => a + b.toString) // reduces effects into 1 effect, in parallel
+      _ <- printLine("mergeAllPar: " + res4)
+
+      winner <- IO.succeed("first").race(IO.succeed("second"))
+      _ <- printLine("race: " + winner)
+
+      res5 <- IO.succeed("Hello").timeout(1.seconds) // timeout changes T into Option[T]
+      _ <- printLine(res5)
+    } yield ()
+  }
+
+}
+
 
 object NumberGuesser extends ZIOAppDefault {
 
