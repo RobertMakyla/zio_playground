@@ -21,9 +21,8 @@ object ZioTypes {
 
 object HelloWorld extends ZIOAppDefault {
 
-  import Console._
-
-  def run: ZIO[Has[Console], IOException, Unit] = printLine("Hello, World!")
+  def run: ZIO[Any, IOException, Unit] = ZIO.service[Console].flatMap(_.printLine("Hello, World!")).provideLayer(Console.live) // Effectfully accesses the environment of the effect
+  //rule of thumb: import Console._ and then do printLine() - does exactly the same job, it's just a helper and it's easlier
 
   //  map(_ => 1) or as(): if we need to change success type:
   // (printLine("hello") as 0) // or map(_ => 0)
@@ -33,8 +32,8 @@ object PrintSequence extends ZIOAppDefault {
 
   import Console._
 
-  def run: ZIO[Has[Console], IOException, Unit] =
-    printLine("hello") *> printLine("world")
+  def run: ZIO[Any, IOException, Unit] =
+  printLine("hello") *> printLine("world") // '*>', or zipRight is also a flatMap that ignores first value. However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
 }
 
 object ErrorRecovery extends ZIOAppDefault {
@@ -44,15 +43,15 @@ object ErrorRecovery extends ZIOAppDefault {
   def unfaillableEither: ZIO[Any, Nothing, Either[Exception, Nothing]] = ZIO.fail(new Exception("boom")).either // .either changes possible error and result to unfailable Either[error, result)]
   /** ZIO.absolve is oposite to either and turns an ZIO[R, Nothing, Either[E, A]] into a ZIO[R, E, A]: */
 
-  def failablePrint(s: String): ZIO[Has[Console], IOException, Unit] = printLine(s)
-  def unfailablePrint(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s) orElse ZIO.unit // orElse() - try another effect if the first one fails.
-  def unfailablePrintWithCatch(s: String): ZIO[Has[Console], Nothing, Unit] = printLine(s).catchAllCause(cause => unfailablePrint(cause.prettyPrint)) // catchAll[Cause] catches error and returns second effect
+  def failablePrint(s: String): ZIO[Console, IOException, Unit] = printLine(s)
+  def unfailablePrint(s: String): ZIO[Console, Nothing, Unit] = printLine(s) orElse ZIO.unit // orElse() - try another effect if the first one fails.
+  def unfailablePrintWithCatch(s: String): ZIO[Console, Nothing, Unit] = printLine(s).catchAll(e => unfailablePrint(e.getMessage)) // catchAll() catches error and returns second effect
 
   val failWithString: IO[String, Nothing] = ZIO.fail[String]("BOOM")
 
-  def run: ZIO[Has[Console], IOException, Unit] = {
+  override val run: ZIO[Any, Nothing, Unit] = {
 
-    val res: ZIO[Has[Console], String, Unit] =
+    val res: ZIO[Console, String, Unit] =
       unfailablePrintWithCatch("I am about to fail") *> // *> is the same as zipRight()
         failWithString *>
         unfailablePrint("I will never be printed")
@@ -61,15 +60,19 @@ object ErrorRecovery extends ZIOAppDefault {
     /**
      * fold(): if I want to get rid of failure
      * it handles success and failure in noneffectual way
+     *
+     * foldM() handles success and failure in an effectual way
      */
-    val exitCode: URIO[Has[Console], Int] = res.fold(err => -1, success => 0)
+    val exitCode: URIO[Console, Int] = res.fold(err => -1, success => 0)
 
     /**
      * foldZIO handles both success and failure in effectual way
      */
-    val exitCodeFromEffects: ZIO[Has[Console], Nothing, Int] = res.foldZIO(err => ZIO.succeed(-1), success => ZIO.succeed(1))
+    val exitCodeFromEffects: ZIO[Console, Nothing, Int] = res.foldZIO(err => ZIO.succeed(-1), success => ZIO.succeed(1))
 
-    res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
+    val resChanged: ZIO[Console, IOException, Unit] = res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
+
+    ZIO.unit
   }
 }
 
@@ -83,31 +86,31 @@ object Loops extends ZIOAppDefault {
     if (n <= 0) effect else effect *> loop(n - 1)(effect)
   }
 
-  def run: ZIO[Has[Console], IOException, Unit] =
-    loop(10)(printLine("hello"))
+  override def run: ZIO[Any, IOException, Unit] =
+    loop(10)(printLine("hello")).provideLayer(Console.live)
 }
 
 object PromptName extends ZIOAppDefault {
 
   import Console._
-  import Duration._
+
   //Implement something like:
   //
   //   printLine("what is you name ?") *>
   //   readLine *>
   //   printLine(s" hello $name")
   //
-  def run: ZIO[ZEnv, IOException, Unit] = forComprehension
+  def run: ZIO[Any, IOException, Unit] = forComprehension
 
   def classicWay: ZIO[ZEnv, IOException, Unit] =
-    printLine("what is you name ?") *> // '*>', or zipRight is also a flatMap. However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
+    printLine("what is you name ?") *> // '*>', or zipRight is also a flatMap that ignores first value. However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
       readLine
         .flatMap { // flatMap to get a value and use it
           name =>
             printLine(s" hello $name")
         }
 
-  def forComprehension: ZIO[ZEnv, IOException, Unit] =
+  def forComprehension: ZIO[Any, IOException, Unit] =
     for {
       _ <- printLine("what is you name ?")
       name <- readLine
@@ -125,7 +128,7 @@ object ParallelOperations extends ZIOAppDefault {
   import Random._
 
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     for {
       _ <- printLine("I go first").zip(printLine(", I go second")) // zipping 2 effects into one (sequentially), making a tuple of results if there are any
       _ <- printLine("am I first ?").zipPar(printLine(" or maybe I am first ?")) // zipping 2 effects into one (parallel)
@@ -161,11 +164,11 @@ object NumberGuesser extends ZIOAppDefault {
   import Console._
   import Random._
 
-  def analyze(guess: String, answer: Int): ZIO[Has[Console], IOException, Unit] = {
+  def analyze(guess: String, answer: Int): ZIO[Any, IOException, Unit] = {
     if (guess == answer.toString) printLine("OK :)") else printLine(s"Sorry, the answer was $answer")
   }
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     for {
       randomInt <- nextIntBetween(1, 4) // from zio.Random
       _ <- printLine("Please write a number 0 to 3 ...")
@@ -180,7 +183,7 @@ object HelloFibers extends ZIOAppDefault {
 
   import Console._
 
-  def run: ZIO[ZEnv, IOException, Unit] = for {
+  def run: ZIO[Any, IOException, Unit] = for {
     _          <- printLine("get up")
     fiber1     <- printLine("brush your teeth").fork
     fiber2     <- printLine("get dressed").fork
@@ -194,7 +197,7 @@ object ParallelCalculation extends ZIOAppDefault {
 
   import Console._
 
-  def run: ZIO[ZEnv, IOException, Unit] = for {
+  def run: ZIO[Any, IOException, Unit] = for {
     fiber1 <- (printLine("calculating 1 in parallel") *> ZIO.succeed(1)).fork // Returns an effect that forks this effect into its own separate fiber, ...
     fiber2 <- (printLine("calculating 2 in parallel") *> ZIO.succeed(2)).fork // ... returning the fiber immediately, without waiting for it to begin executing the effect.
     a <- fiber1.join // suspends the main fiber until the result of joining fiber has been determined.
@@ -205,7 +208,7 @@ object ParallelCalculation extends ZIOAppDefault {
 
 object LoopWithZIO extends ZIOAppDefault {
 
-  def loopWithExplicitRecursion(from: Int, to: Int): ZIO[ZEnv, IOException, Unit] = {
+  def loopWithExplicitRecursion(from: Int, to: Int): ZIO[Any, IOException, Unit] = {
     if (from <= to) Console.printLine(s"$from") *> loopWithExplicitRecursion(from + 1, to) else ZIO.unit
   }
 
@@ -220,24 +223,24 @@ object AlarmDuration extends ZIOAppDefault {
   import Console._
   import java.io.IOException
 
-  lazy val getAlarmDuration: ZIO[ZEnv, IOException, Duration] = {
+  lazy val getAlarmDuration: ZIO[Any, IOException, Duration] = {
 
     def parseDuration(input: String): IO[NumberFormatException, Duration] =
       ZIO.attempt(input.toInt) // ZIO.attempt makes ZIO effect from risky code. Task = ZIO[Any, Throwable, A]
         .map(i => i.seconds)
         .refineToOrDie[NumberFormatException] // narrow the error type or make the fiber die !!!
 
-    def fallback(input: String): ZIO[ZEnv, IOException, Duration] =
+    def myFallback(input: String): ZIO[Any, IOException, Duration] =
       printLine(s"You entered $input which is not valid for seconds, try again!") *> getAlarmDuration
 
     for {
       _ <- printLine("Please enter the number of seconds to sleep: ")
       input <- readLine
-      duration <- parseDuration(input) orElse fallback(input) // orElse - runs the second effect if the first one fails
+      duration <- parseDuration(input) orElse myFallback(input) // orElse - runs the second effect if the first one fails
     } yield duration
   }
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     for {
       duration <- getAlarmDuration
       //fiber <- (print(".") *> ZIO.sleep(1.seconds)).repeatN(duration.getSeconds.toInt) // just sleeping for n seconds and printing dots - no fork !
@@ -257,7 +260,7 @@ object AsyncPrinting extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     val effect1 = print("o ") *> ZIO.sleep(100.millisecond)
     val effect2 = print("| ") *> ZIO.sleep(100.millisecond)
 
@@ -280,10 +283,10 @@ object SyncPrinting extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  def keepPrintingA: ZIO[ZEnv, IOException, Unit] = print("o ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
-  def keepPrintingB: ZIO[ZEnv, IOException, Unit] = print("| ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
+  def keepPrintingA: ZIO[Any, IOException, Unit] = print("o ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
+  def keepPrintingB: ZIO[Any, IOException, Unit] = print("| ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
 
-  def run: ZIO[ZEnv, IOException, Unit] = keepPrintingA.forever
+  def run: ZIO[Any, IOException, Unit] = keepPrintingA.forever
 }
 
 /**
@@ -298,7 +301,7 @@ object SyncPrintingRef extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  def printSyncOnRef(expectedRef: Boolean, ref: Ref[Boolean], s: String): ZIO[ZEnv, IOException, Unit] =
+  def printSyncOnRef(expectedRef: Boolean, ref: Ref[Boolean], s: String): ZIO[Any, IOException, Unit] =
     for {
       actualRef <- ref.get
 //      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.unit
@@ -306,7 +309,7 @@ object SyncPrintingRef extends ZIOAppDefault {
 //    _ <- ZIO.sleep(100.millisecond)
     } yield ()
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     for {
       ref <- Ref.make(true)
       fiberA <- printSyncOnRef(true, ref, "o ").forever.fork // it forks this effect into its own separate fiber,
@@ -334,10 +337,10 @@ object SemaphoreExample extends ZIOAppDefault {
    * When the acquire operation cannot be performed, due to insufficient permits,
    * such task is placed in internal suspended fibers queue and will be awaken when permits value is sufficient:
    */
-  def printOnSemaphore(sem: Semaphore, s: String): ZIO[ZEnv, IOException, Unit] =
+  def printOnSemaphore(sem: Semaphore, s: String): ZIO[Any, IOException, Unit] =
     sem.withPermit(print(s))
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     for {
       singlePermitSemaphore <- Semaphore.make(1) // Making a semaphore with 1 permit
       fiberA <- printOnSemaphore(singlePermitSemaphore, "o ").forever.fork
@@ -358,7 +361,7 @@ object PromiseExample extends ZIOAppDefault {
   import Console._
   import Duration._
 
-  def run: ZIO[ZEnv, IOException, Unit] =
+  def run: ZIO[Any, IOException, Unit] =
     for {
       promise <- Promise.make[Nothing, String] // create a promise
           sendString = (ZIO.succeed("hello world") <* ZIO.sleep(2.second)).flatMap(s => promise.succeed(s)) // complete the promise after 1 sec
@@ -395,20 +398,20 @@ class ComputePi  {
   // Pi = (points inside circle / points inside square) *4
   def estimatePi(inside: Long, total: Long): Double = (inside.toDouble / total.toDouble) * 4
 
-  def randomTuple: ZIO[ZEnv, Nothing, (Double, Double)] = nextDouble zip nextDouble // zip() is making a tuple
+  def randomTuple: ZIO[Any, Nothing, (Double, Double)] = nextDouble zip nextDouble // zip() is making a tuple
 
   def isInsideCircle(x: Double, y: Double): Boolean = Math.sqrt(x * x + y * y) <= 1
 
   /** Ref is a wrapper for variables, lazy and composable with ZIO effects
    Ref can be read/updated 100% the isolated way - atomically - without using any locking !*/
-  def increaseStateNumbers(ref: Ref[PointsState]): ZIO[ZEnv, IOException, Unit] = (
-      for {
-        tuple: (Double, Double) <- randomTuple
-        (x, y)                  = tuple
-        inside                  = if (isInsideCircle(x, y)) 1 else 0
-        _                       <- ref.update(state => PointsState(state.inTheCircle + inside, state.total + 1)) // update: Atomically modifies the `ZRef`
-      } yield ()
-    ).orElse(ZIO.fail(new IOException("increase failed")))
+  def increaseStateNumbers(ref: Ref[PointsState]): ZIO[Any, Nothing, Unit] =
+    for {
+      tuple <- randomTuple
+      (x, y) = tuple
+      inside = if (isInsideCircle(x, y)) 1 else 0
+      _ <- ref.update(state => PointsState(state.inTheCircle + inside, state.total + 1)) // update: Atomically modifies the `ZRef`
+    } yield ()
+
 
   def printCurrentPi(ref: Ref[PointsState]) =
     for {
@@ -416,11 +419,11 @@ class ComputePi  {
       _ <- printLine("" + estimatePi(state.inTheCircle, state.total))
     } yield ()
 
-  def run: ZIO[ZEnv, IOException, Unit] =
+  def run: ZIO[Any, IOException, Unit] =
     for {
       ref     <- Ref.make(PointsState(0L, 0L)) // making a new Ref
-      worker: ZIO[ZEnv, IOException, Unit]   = increaseStateNumbers(ref).forever // "=" means that we are not putting it yet into ZIO effects
-      workers: List[ZIO[ZEnv, IOException, Unit]] = List.fill(10)(worker) // List of ZIO effects
+      worker: ZIO[Any, IOException, Unit]   = increaseStateNumbers(ref).forever // "=" means that we are not putting it yet into ZIO effects
+      workers: List[ZIO[Any, IOException, Unit]] = List.fill(10)(worker) // List of ZIO effects
       fiber1   <- ZIO.forkAll(workers) // forking a list of workers into one separate fiber
       fiber2   <- (printCurrentPi(ref) *> ZIO.sleep(1.second)).forever.fork
       _        <- ZIO.sleep(30.seconds)
@@ -430,7 +433,7 @@ class ComputePi  {
 }
 
 object ComputePiApp extends ZIOAppDefault {
-  def run: ZIO[ZEnv, IOException, Unit] = (new ComputePi).run
+  def run: ZIO[Any, IOException, Unit] = (new ComputePi).run
 }
 
 
@@ -494,7 +497,7 @@ class SmtDiningPhilosophers {
      ).commit // you need to call STM.commit in order to get ZIO effect
   }
 
-  def eat(philosopher: Int, roundtable: Roundtable): ZIO[Has[Console], IOException, Unit] = {
+  def eat(philosopher: Int, roundtable: Roundtable): ZIO[Any, IOException, Unit] = {
     val placement = roundtable.seats(philosopher)
 
     val leftFork  = placement.left
@@ -509,10 +512,10 @@ class SmtDiningPhilosophers {
   }
 
 
-  def run: ZIO[ZEnv, IOException, Unit] = {
+  def run: ZIO[Any, IOException, Unit] = {
     val count = 10
 
-    def eaters(table: Roundtable): Iterable[ZIO[Has[Console], IOException, Unit]] =
+    def eaters(table: Roundtable): Iterable[ZIO[Any, IOException, Unit]] =
       (0 to count).map(i => eat(i, table))
 
     for {
@@ -526,5 +529,5 @@ class SmtDiningPhilosophers {
 }
 
 object SmtDiningPhilosophersApp extends ZIOAppDefault {
-  def run: ZIO[ZEnv, IOException, Unit] = (new SmtDiningPhilosophers).run
+  def run: ZIO[Any, IOException, Unit] = (new SmtDiningPhilosophers).run
 }
