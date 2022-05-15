@@ -252,9 +252,9 @@ object HelloFibers extends ZIOAppDefault {
   import Console._
 
   def run: ZIO[Any, IOException, Unit] = for {
-    _          <- printLine("get up")
-    fiber1     <- printLine("brush your teeth").fork
-    fiber2     <- printLine("get dressed").fork
+    _          <- printLine("get up")                // fiber no.1 (main)
+    fiber1     <- printLine("brush your teeth").fork // fiber no.2
+    fiber2     <- printLine("get dressed").fork      // fiber no.3
     fiberReady = fiber1.zip(fiber2) // nice alias for zipping: <*>
     _          <- fiberReady.join // joins wait for fiber 1 and 2 (zipped together) to be complete before we continue
     _          <- printLine("ready to go")
