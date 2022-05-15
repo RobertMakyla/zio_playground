@@ -205,6 +205,48 @@ object BlockingSideEffects extends ZIOAppDefault {
   }
 }
 
+object SeparatingBlockingEffectButNotInterrupting extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+
+  def run =
+    for {
+      _     <- printLine("Start blocking operation")
+      fiber <- ZIO.attemptBlocking { // when we interrupt ZIO.attemptBlocking{} it will still NOT STOP. It will stop when JVM stops !!!
+                while (true) {
+                  Thread.sleep(200)
+                  println("Doing some blocking operation")
+                }
+              }.ensuring(printLine("End of a blocking operation - WILL NEVER BE PRINTED").orDie)
+               .fork
+      _ <- ZIO.sleep(1.seconds)
+      _ <- fiber.interrupt // it will not interrupt the underlying loop
+    } yield ()
+
+}
+
+object InterruptingBlockingEffect extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+
+  def run =
+    for {
+      _     <- printLine("Start blocking operation")
+      fiber <- ZIO.attemptBlockingInterrupt{ // this can be interrupted :)
+        while (true) {
+          Thread.sleep(200)
+          println("Doing some blocking operation")
+        }
+      }.ensuring(printLine("End of a blocking operation").orDie)
+        .fork
+      _ <- ZIO.sleep(1.seconds)
+      _ <- fiber.interrupt
+    } yield ()
+
+}
+
 object HelloFibers extends ZIOAppDefault {
 
   import Console._
