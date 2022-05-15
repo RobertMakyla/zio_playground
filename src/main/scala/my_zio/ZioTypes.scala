@@ -179,6 +179,15 @@ object NumberGuesser extends ZIOAppDefault {
 
 }
 
+object BlockingSideEffects extends ZIOAppDefault {
+  import Console._
+  import Duration._
+  override def run: ZIO[Any, Throwable, Unit] = {
+    ZIO.attemptBlocking(Thread.sleep(1000)) *> // ZIO.attemptBlocking( nonEffectual  ) - makes sure it's executed in a separate thread pool for potential blockers.
+    ZIO.blocking(ZIO.sleep(1.seconds) *> printLine("late hi")) // ZIO.blocking( effectual )   - the same but it takes effectual argument
+  }
+}
+
 object HelloFibers extends ZIOAppDefault {
 
   import Console._
