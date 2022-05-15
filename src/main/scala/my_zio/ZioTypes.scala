@@ -250,6 +250,38 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
 
 }
 
+/**
+ * We always have CORE concerns (eg: calculate business data) and CROSS-CUTTING concerns (retry, logging, etc)
+ *
+ * Aspect-oriented programming - help us increase modularity by SEPARATION OF CONCERNS.
+ * It does it by adding behavior to existing code without modifying it.
+ * With ASPECTS, the cross-cutting (not core/not business) logic can be added without modifying the code (business) logic
+ *
+ * 1. computing business data (fail or pass)
+ * 2. retrying
+ * 3. logging the data
+ *
+ * ZIO Aspect is like a function ZIO[R, E, A] => ZIO[R, E, A] (not impacting the types)
+ */
+object Aspects extends ZIOAppDefault {
+
+  import Console._
+  import Duration._
+  import Random._
+
+  def intPassOrFail(passPercentage: Int) = {
+    nextIntBetween(0, 100)
+      .flatMap(random => if (random < passPercentage) ZIO.succeed("hello") else ZIO.fail(new IOException("boom")))
+  }
+
+  override def run =
+    intPassOrFail(50) @@
+      ZIOAspect.retry(Schedule.fibonacci(100.milliseconds)) @@
+      ZIOAspect.logged("Successful computation") @@
+      ZIOAspect.loggedWith[String](msg => s"Final result: ${msg}")
+
+}
+
 object HelloFibers extends ZIOAppDefault {
 
   import Console._
