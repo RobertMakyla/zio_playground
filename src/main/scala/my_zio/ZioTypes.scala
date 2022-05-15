@@ -61,7 +61,7 @@ object ErrorRecovery extends ZIOAppDefault {
      * fold(): if I want to get rid of failure
      * it handles success and failure in noneffectual way
      *
-     * foldM() handles success and failure in an effectual way
+     * foldZIO() - in an effectual way
      */
     val exitCode: URIO[Console, Int] = res.fold(err => -1, success => 0)
 
@@ -88,6 +88,23 @@ object Loops extends ZIOAppDefault {
 
   override def run: ZIO[Any, IOException, Unit] =
     loop(10)(printLine("hello")).provideLayer(Console.live)
+}
+
+object ProvidingEnvironment extends ZIOAppDefault {
+
+  import Console._
+
+  def square: URIO[Int, Int] =
+    for {
+      env <- ZIO.service[Int] // ZIO.service[] -- access to environment, ZIO.serviceWith[] - gives way to run something on environment's function
+    } yield env * env
+
+  override def run = {
+    for {
+      sq <- square.provideEnvironment(ZEnvironment(4))
+      _ <- printLine(sq)
+    } yield ()
+  }
 }
 
 object PromptName extends ZIOAppDefault {
