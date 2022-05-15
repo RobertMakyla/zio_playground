@@ -101,7 +101,7 @@ object ProvidingEnvironment extends ZIOAppDefault {
 
   override def run = {
     for {
-      sq <- square.provideEnvironment(ZEnvironment(4))
+      sq <- square.provideEnvironment(ZEnvironment(4)) // ZEnvironment - provides Environment to an effect
       _ <- printLine(sq)
     } yield ()
   }
