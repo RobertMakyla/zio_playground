@@ -226,6 +226,9 @@ object SeparatingBlockingEffectButNotInterrupting extends ZIOAppDefault {
 
 }
 
+/**
+ * Instead of interrupting a fiber I can always call .timeout(Duration) on any effect. It returns Some() if we have result before deadline or None if  we don't.
+ */
 object InterruptingBlockingEffect extends ZIOAppDefault {
 
   import Console._
