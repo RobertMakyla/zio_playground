@@ -238,12 +238,12 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
     for {
       _     <- printLine("Start blocking operation")
       fiber <- ZIO.attemptBlockingInterrupt{ // this can be interrupted :)
-        while (true) {
-          Thread.sleep(200)
-          println("Doing some blocking operation")
-        }
-      }.ensuring(printLine("End of a blocking operation").orDie)
-        .fork
+                while (true) {
+                  Thread.sleep(200)
+                  println("Doing some blocking operation")
+                }
+              }.ensuring(printLine("End of a blocking operation").orDie)
+                .fork
       _ <- ZIO.sleep(1.seconds)
       _ <- fiber.interrupt
     } yield ()
