@@ -218,7 +218,7 @@ object SeparatingBlockingEffectButNotInterrupting extends ZIOAppDefault {
                   Thread.sleep(200)
                   println("Doing some blocking operation")
                 }
-              }.ensuring(printLine("End of a blocking operation - WILL NEVER BE PRINTED").orDie)
+              }.ensuring(printLine("End of a blocking operation - WILL NEVER BE PRINTED").orDie) // or I can use: onInterrupt()
                .fork
       _ <- ZIO.sleep(1.seconds)
       _ <- fiber.interrupt // it will not interrupt the underlying loop
@@ -242,7 +242,7 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
                   Thread.sleep(200)
                   println("Doing some blocking operation")
                 }
-              }.ensuring(printLine("End of a blocking operation").orDie)
+              }.onInterrupt(printLine("End of a blocking operation").orDie)
                 .fork
       _ <- ZIO.sleep(1.seconds)
       _ <- fiber.interrupt
@@ -282,6 +282,10 @@ object Aspects extends ZIOAppDefault {
 
 }
 
+/**
+ * fork - from ZIO[R, E, A] it makes URIO[R, Fiber[E, A]]
+ * forkDeamon - makes a new global fiber, so if the main fiber ends, this one will still be running
+ */
 object HelloFibers extends ZIOAppDefault {
 
   import Console._
