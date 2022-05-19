@@ -251,6 +251,36 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
 }
 
 /**
+ * FiberRef[T] - it’s exactly like Ref[A] (mutable reference) but in the scope of the fiber.
+ * So when I fork a child fiber, the initial FiberRef[T] values are equal to parent’s values
+ * (copy-on-fork)
+ */
+object FiberRefTest extends ZIOAppDefault {
+
+  import Console._
+
+  def newFiberForked[A](fr: FiberRef[A])(incr: A => A) = (
+    for {
+      v <- fr.get
+      _ <- fr.set(incr(v))
+      nv <- fr.get
+      _ <- printLine("new value: " + nv)
+    } yield ()
+    ).fork
+
+  def run =
+    for {
+      fr <- FiberRef.make[Int](1)
+      f1 <- newFiberForked[Int](fr)(i => i * 10)
+      f2 <- newFiberForked[Int](fr)(i => i * 20)
+      oldFr <- fr.get
+      _ <- printLine("old value: " + oldFr)
+      _ <- f1.interrupt
+      _ <- f2.interrupt
+    } yield ()
+}
+
+/**
  * We always have CORE concerns (eg: calculate business data) and CROSS-CUTTING concerns (retry, logging, etc)
  *
  * Aspect-oriented programming - help us increase modularity by SEPARATION OF CONCERNS.
