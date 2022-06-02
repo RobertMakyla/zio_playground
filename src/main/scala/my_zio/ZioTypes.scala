@@ -261,10 +261,8 @@ object FiberRefTest extends ZIOAppDefault {
 
   def newFiberForked[A](fr: FiberRef[A])(incr: A => A) = (
     for {
-      v <- fr.get
-      _ <- fr.set(incr(v))
-      nv <- fr.get
-      _ <- printLine("new value: " + nv)
+      _ <- fr.update(incr)
+      _ <- fr.get.flatMap(nv => printLine("new value: " + nv))
     } yield ()
     ).fork
 

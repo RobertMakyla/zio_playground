@@ -4,7 +4,7 @@ import zhttp.http._
 import zhttp.service.Server
 import zio._
 
-object SimpleServer extends ZIOAppDefault {
+object SimpleZHTTPServer extends ZIOAppDefault {
 
   // Create HTTP route
   val app: HttpApp[Any, Nothing] = Http.collect[Request] {

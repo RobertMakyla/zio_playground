@@ -1,5 +1,5 @@
 package my_zio
-
+import scala.io.StdIn
 object TaglessFinalTest extends App {
 
   /** Algebra represents the DSL
