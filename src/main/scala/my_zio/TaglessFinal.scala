@@ -23,7 +23,7 @@ object TaglessFinalTest extends App {
   /**
    * Algebra - represents the abstract DSL with higher kinded generic type F[_], might be implemented with several types with different types F[_]
    * Interpreter - is an implementation of an Algebra (F[T] becomes Either[Throwable, T] ). Having F[T], Interpreted makes F concrete
-   * Program - client of Albegra, implements the business logic.
+   * Program - client of Albegra, implements the business logic (sequence of DSL operations).
    */
 
   case class SimpleExpr[E](value: E)
@@ -64,7 +64,10 @@ object TaglessFinalTest extends App {
   }
 
 
-
+  /**
+   * PROGRAM is just a sequence of operations on the DSL
+   * Until we provide an INTERPRETER, it doesn't do anything
+   */
   def program1[E[Boolean]](implicit alg: MyAlgebra[E]) = {
     import alg._
     or(b(false), or(b(true), and(b(false), b(true))))
