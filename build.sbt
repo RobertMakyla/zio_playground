@@ -5,8 +5,8 @@ version := "1.0"
 scalaVersion := "2.13.8"
 
 libraryDependencies ++= {
-  val zioVersion = "2.0.0-RC5"
-  val zioHttpVersion = "2.0.0-RC7"
+  val zioVersion = "2.0.1"          // https://github.com/zio/zio/releases
+  val zioHttpVersion = "2.0.0-RC11" // https://github.com/zio/zio-http/releases
   val CatsCoreV = "2.3.0"
   val CatsFreeV = "2.3.0"
   Seq(
