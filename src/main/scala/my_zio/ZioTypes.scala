@@ -1,5 +1,7 @@
 package my_zio
 
+import zio.Console.{ConsoleLive, printLine}
+
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import zio._
@@ -21,7 +23,7 @@ object ZioTypes {
 
 object HelloWorld extends ZIOAppDefault {
 
-  def run: ZIO[Any, IOException, Unit] = Console.printLine("hello, ZIO!")
+  def run: ZIO[Any, IOException, Unit] = ZIO.service[Console].flatMap(_.printLine("Hello, ZIO")).provideEnvironment(ZEnvironment(ConsoleLive))
   //rule of thumb: import Console._ and then do printLine() - does exactly the same job, it's just a helper and it's easlier
 
   //  map(_ => 1) or as(): if we need to change success type:
@@ -33,15 +35,18 @@ object PrintSequence extends ZIOAppDefault {
   import Console._
 
   def run: ZIO[Any, IOException, Unit] =
-  printLine("hello") *> printLine("world") // '*>', or zipRight is also a flatMap that ignores first value. However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
+    printLine("1") *> printLine("2").flatMap(_ => printLine("3")) <* printLine("4")
+    // '*>', or zipRight is also a flatMap that ignores first value.
+    // However, zipLeft '<*' also sequences an effect but ignores the value produced by the second effect
 }
 
 object ErrorRecovery extends ZIOAppDefault {
 
   import Console._
 
-  def unfaillableEither: ZIO[Any, Nothing, Either[Exception, Nothing]] = ZIO.fail(new Exception("boom")).either // .either changes possible error and result to unfailable Either[error, result)]
-  /** ZIO.absolve is oposite to either and turns an ZIO[R, Nothing, Either[E, A]] into a ZIO[R, E, A]: */
+  def unfaillableEither: ZIO[Any, Nothing, Either[Exception, Nothing]] = ZIO.fail(new Exception("boom")).either
+  // ZIO.either changes possible error and result to unfailable Either[error, result)]
+  // ZIO.absolve is oposite to either and turns an ZIO[R, Nothing, Either[E, A]] into a ZIO[R, E, A]:
 
   def failablePrint(s: String): ZIO[Console, IOException, Unit] = printLine(s)
   def unfailablePrint(s: String): ZIO[Console, Nothing, Unit] = printLine(s) orElse ZIO.unit // orElse() - try another effect if the first one fails.
@@ -63,14 +68,16 @@ object ErrorRecovery extends ZIOAppDefault {
      *
      * foldZIO() - in an effectual way
      */
-    val exitCode: URIO[Console, Int] = res.fold(err => -1, success => 0)
+    val exitCode: URIO[Console, Int] = res.fold[Int](err => -1, success => 0)
 
     /**
      * foldZIO handles both success and failure in effectual way
      */
     val exitCodeFromEffects: ZIO[Console, Nothing, Int] = res.foldZIO(err => ZIO.succeed(-1), success => ZIO.succeed(1))
 
-    val resChanged: ZIO[Console, IOException, Unit] = res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
+    val resChanged1: ZIO[Console, String, Int] = res.map(_ => 0) // map: just change success
+    val resChanged1b: ZIO[Console, String, Int] = res as 0 // as === map: just change success
+    val resChanged2: ZIO[Console, IOException, Unit] = res.mapError((msg: String) => new IOException(msg)) // mapError: just change failure
 
     ZIO.unit
   }
@@ -83,26 +90,32 @@ object Loops extends ZIOAppDefault {
   // Couldn't do it with Futures cause when you have a Future it's already running - no way to restart it.
   // ZIO - is completely lazy
   def loop[R, E, A](n: Int)(effect: ZIO[R, E, A]): ZIO[R, E, A] = {
-    if (n <= 0) effect else effect *> loop(n - 1)(effect)
+    if (n <= 1) effect else effect *> loop(n - 1)(effect)
   }
 
   override def run: ZIO[Any, IOException, Unit] =
-    loop(10)(Console.printLine("hello"))
+    loop(3)(Console.printLine("hello"))
 }
 
 object ProvidingEnvironment extends ZIOAppDefault {
 
   import Console._
 
+  // ZIO.service[] -- access to environment
+  // ZIO.serviceWith[Int](_.toString) -- gives way to run something on environment's function - the same as ZIO.service[Int].map(_.toString)
   def square: URIO[Int, Int] =
     for {
-      env <- ZIO.service[Int] // ZIO.service[] -- access to environment, ZIO.serviceWith[] - gives way to run something on environment's function
+      env <- ZIO.service[Int]  // the same as:   ZIO.service[Int].map(env => env * env)
     } yield env * env
 
-  override def run = {
+  def squareStr: URIO[Int, String] = ZIO.serviceWith[Int](env => (env * env).toString)
+
+  def run: ZIO[Any, Throwable, Unit] = {
     for {
       sq <- square.provideEnvironment(ZEnvironment(4)) // ZEnvironment - provides Environment to an effect
-      _ <- printLine(sq)
+      _ <- printLine("using service() : "+sq)
+      sq2 <- squareStr.provideEnvironment(ZEnvironment(4)) // ZEnvironment - provides Environment to an effect
+      _ <- printLine("using serviceWith() : " + sq2)
     } yield ()
   }
 }
@@ -181,16 +194,17 @@ object NumberGuesser extends ZIOAppDefault {
   import Console._
   import Random._
 
-  def analyze(guess: String, answer: Int): ZIO[Any, IOException, Unit] = {
-    if (guess == answer.toString) printLine("OK :)") else printLine(s"Sorry, the answer was $answer")
-  }
+  def tryToGuess(correctNumber: Int): ZIO[Any, IOException, Unit] =
+    for {
+      _ <- printLine("Please write a number 1 to 10 ...")
+      guess <- readLine
+      _ <- if (guess == correctNumber.toString) printLine("OK :)") else printLine("hint: try "+ correctNumber) *> tryToGuess(correctNumber)
+    } yield ()
 
   def run: ZIO[Any, IOException, Unit] = {
     for {
-      randomInt <- nextIntBetween(1, 4) // from zio.Random
-      _ <- printLine("Please write a number 0 to 3 ...")
-      guess <- readLine
-      _ <- analyze(guess, randomInt)
+      randomInt <- nextIntBetween(1, 11) // from zio.Random
+      _ <- tryToGuess(randomInt)
     } yield ()
   }
 
@@ -200,8 +214,10 @@ object BlockingSideEffects extends ZIOAppDefault {
   import Console._
   import Duration._
   override def run: ZIO[Any, Throwable, Unit] = {
+    printLine("hello") *>
     ZIO.attemptBlocking(Thread.sleep(1000)) *> // ZIO.attemptBlocking( nonEffectual  ) - makes sure it's executed in a separate thread pool for potential blockers.
-    ZIO.blocking(ZIO.sleep(1.seconds) *> printLine("late hi")) // ZIO.blocking( effectual )   - the same but it takes effectual argument
+    printLine("1 sec just passed") *>
+    ZIO.blocking(ZIO.sleep(1.seconds) *> printLine("... and another one")) // ZIO.blocking( effectual )   - the same but it takes effectual argument
   }
 }
 
@@ -322,7 +338,7 @@ object HelloFibers extends ZIOAppDefault {
     _          <- printLine("get up")                // fiber no.1 (main)
     fiber1     <- printLine("brush your teeth").fork // fiber no.2
     fiber2     <- printLine("get dressed").fork      // fiber no.3
-    fiberReady = fiber1.zip(fiber2) // nice alias for zipping: <*>
+    fiberReady = fiber1.zip(fiber2) // sequential execution, making a tuple of results. nice alias for zipping: <*>
     _          <- fiberReady.join // joins wait for fiber 1 and 2 (zipped together) to be complete before we continue
     _          <- printLine("ready to go")
   } yield ()
