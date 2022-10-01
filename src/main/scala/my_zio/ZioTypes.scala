@@ -198,7 +198,11 @@ object NumberGuesser extends ZIOAppDefault {
     for {
       _ <- printLine("Please write a number 1 to 10 ...")
       guess <- readLine
-      _ <- if (guess == correctNumber.toString) printLine("OK :)") else printLine("hint: try "+ correctNumber) *> tryToGuess(correctNumber)
+      _ <- {
+        if (guess > correctNumber.toString) printLine("try smaller") *> tryToGuess(correctNumber)
+        else if (guess < correctNumber.toString) printLine("try bigger") *> tryToGuess(correctNumber)
+        else printLine("You won !!! :)")
+      }
     } yield ()
 
   def run: ZIO[Any, IOException, Unit] = {
