@@ -274,31 +274,31 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
 }
 
 /**
- * FiberRef[T] - it’s exactly like Ref[A] (mutable reference) but in the scope of the fiber.
- * So when I fork a child fiber, the initial FiberRef[T] values are equal to parent’s values
- * (copy-on-fork)
+ * FiberRef[T] - it’s exactly like Ref[A] (mutable reference) but it make s a COPY-ON-FORK
+ *
+ * REMEMBER: So it's a great way to provide an init value to a fiber, but when the fiber gets forked, the FiberRef[A] is detached - no longer shared
  */
 object FiberRefTest extends ZIOAppDefault {
 
   import Console._
 
-  def newFiberForked[A](fr: FiberRef[A])(incr: A => A) = (
+  def newFiberForked[A](fr: FiberRef[A])(f: A => A) = {
     for {
-      _ <- fr.update(incr)
-      _ <- fr.get.flatMap(nv => printLine("new value: " + nv))
+      _        <- fr.update(f) // here it's already detached, so it will be updated only inside the fiber
+      newValue <- fr.get
+      _        <- printLine("detached value inside a forked fiber is: " + newValue )
     } yield ()
-    ).fork
+  }.fork
 
-  def run =
-    for {
-      fr <- FiberRef.make[Int](1)
-      f1 <- newFiberForked[Int](fr)(i => i * 10)
-      f2 <- newFiberForked[Int](fr)(i => i * 20)
-      oldFr <- fr.get
-      _ <- printLine("old value: " + oldFr)
-      _ <- f1.interrupt
-      _ <- f2.interrupt
-    } yield ()
+  def run  = for {
+    fRef   <- FiberRef.make[Int](1)
+    fiber1 <- newFiberForked(fRef)(_ * 10)
+    fiber2 <- newFiberForked(fRef)(_ * 20)
+    _      <- ZIO.sleep(1.seconds)
+    _      <- fRef.get.flatMap(x => printLine(s"the original value is ${x}"))
+    _      <- fiber1.interrupt
+    _      <- fiber2.interrupt
+  } yield ()
 }
 
 /**
@@ -322,12 +322,12 @@ object Aspects extends ZIOAppDefault {
 
   def intPassOrFail(passPercentage: Int) = {
     nextIntBetween(0, 100)
-      .flatMap(random => if (random < passPercentage) ZIO.succeed("hello") else ZIO.fail(new IOException("boom")))
+      .flatMap(random => if (random < passPercentage) printLine("ok") *> ZIO.succeed("hello") else printLine("error") *> ZIO.fail(new IOException("boom")))
   }
 
   override def run =
-    intPassOrFail(50) @@
-      ZIOAspect.retry(Schedule.fibonacci(100.milliseconds)) @@
+    intPassOrFail(5) @@
+      ZIOAspect.retry(Schedule.fibonacci(100.milliseconds)) @@ //slower and slower
       ZIOAspect.logged("Successful computation") @@
       ZIOAspect.loggedWith[String](msg => s"Final result: ${msg}")
 
@@ -336,6 +336,11 @@ object Aspects extends ZIOAppDefault {
 /**
  * fork - from ZIO[R, E, A] it makes URIO[R, Fiber[E, A]]
  * forkDeamon - makes a new global fiber, so if the main fiber ends, this one will still be running
+ *
+ * TO REMEMBER: ZIPPING 2 ZIO effects gives another ZIO effect so you can write:
+ *              res <- effec1 <*> effect2
+ *              BUT ZIPPING 2 FIBERS gives you another fiber (not a ZIO), so you need to use '=' :
+ *              res = fiber1 <*> fiber2
  */
 object HelloFibers extends ZIOAppDefault {
 
@@ -345,12 +350,13 @@ object HelloFibers extends ZIOAppDefault {
     _          <- printLine("get up")                // fiber no.1 (main)
     fiber1     <- printLine("brush your teeth").fork // fiber no.2
     fiber2     <- printLine("get dressed").fork      // fiber no.3
-    fiberReady = fiber1.zip(fiber2) // sequential execution, making a tuple of results. nice alias for zipping: <*>
+    fiberReady = fiber1.zip(fiber2) // <*> - a sequential execution, making a tuple of results. nice alias for zipping: <*>
     _          <- fiberReady.join // joins wait for fiber 1 and 2 (zipped together) to be complete before we continue
     _          <- printLine("ready to go")
   } yield ()
 }
 
+// REMEMBER only when you JOIN a fiber into the main fiber - you actually get the fiber's output
 object ParallelCalculation extends ZIOAppDefault {
 
   import Console._
@@ -358,6 +364,7 @@ object ParallelCalculation extends ZIOAppDefault {
   def run: ZIO[Any, IOException, Unit] = for {
     fiber1 <- (printLine("calculating 1 in parallel") *> ZIO.succeed(1)).fork // Returns an effect that forks this effect into its own separate fiber, ...
     fiber2 <- (printLine("calculating 2 in parallel") *> ZIO.succeed(2)).fork // ... returning the fiber immediately, without waiting for it to begin executing the effect.
+    /* now fiber 1 and 2 are calculated with RANDOM ORDER, completely parallel */
     a <- fiber1.join // suspends the main fiber until the result of joining fiber has been determined.
     b <- fiber2.join
     _ <- printLine("Sum: " + (a + b))
@@ -419,14 +426,14 @@ object AsyncPrinting extends ZIOAppDefault {
   import java.io.IOException
 
   def run: ZIO[Any, IOException, Unit] = {
-    val effect1 = print("o ") *> ZIO.sleep(100.millisecond)
-    val effect2 = print("| ") *> ZIO.sleep(100.millisecond)
+    val effect1 = print("o ") *> ZIO.sleep(0.millisecond)
+    val effect2 = print("| ") *> ZIO.sleep(0.millisecond)
 
     for {
-      fiber <- effect1.race(effect2).forever.fork // more elegant way than using low-level fibers
+      fiber <- effect1.race(effect2).forever.fork // RACE: If effect 1 succeeds, efect 2 will be interrupted.
       //      fiberA <- effect1.forever.fork // it forks this effect into its own separate fiber,
       //      fiberB <- effect2.forever.fork
-      _ <- ZIO.sleep(3.seconds) // just sleeping for n seconds
+      _ <- ZIO.sleep(100.milliseconds) // just sleeping for n seconds
       _ <- printLine("Time's up !")
       _ <- fiber.interrupt
 //      _ <- fiberA.interrupt
@@ -441,16 +448,16 @@ object SyncPrinting extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  def keepPrintingA: ZIO[Any, IOException, Unit] = print("o ") *> ZIO.sleep(100.millisecond)  *> keepPrintingB
-  def keepPrintingB: ZIO[Any, IOException, Unit] = print("| ") *> ZIO.sleep(100.millisecond)  *> keepPrintingA
+  val printA: ZIO[Any, IOException, Nothing] = printLine("A ") *> ZIO.sleep(500.milliseconds) *> printB
+  val printB: ZIO[Any, IOException, Nothing] = printLine("B ") *> ZIO.sleep(500.milliseconds) *> printA
 
-  def run: ZIO[Any, IOException, Unit] = keepPrintingA.forever
+  def run: ZIO[Any, IOException, Unit] = printA
 }
 
 /**
  * Ref - set/get - mutable reference to immutable data (atomic reference)
- * Ref.Synchronized (former RefM) - has the same methods but allows to calculate effects within update() and use the effect's result to update the value.
- *                                 Ref.Synchronized.modifyZIO(state -> effect)
+ * Ref.Synchronized (former RefM) - has the same methods but allows to use effect's result to update the value:  updateZIO(_ => effect)
+ *                                 Ref.Synchronized.updateZIO(state -> EFFECT)
  *                                 during calculations all the Writes are blocked, Reads are permitted
  */
 object SyncPrintingRef extends ZIOAppDefault {
@@ -521,12 +528,14 @@ object PromiseExample extends ZIOAppDefault {
 
   def run: ZIO[Any, IOException, Unit] =
     for {
-      promise <- Promise.make[Nothing, String] // create a promise
-          sendString = (ZIO.succeed("hello world") <* ZIO.sleep(2.second)).flatMap(s => promise.succeed(s)) // complete the promise after 1 sec
-          getAndPrint = promise.await.flatMap(s => printLine(s)) // await for the promise and print the result
-      fiberA <- sendString.fork
-      fiberB <- getAndPrint.fork
-      _ <- (fiberA <*> fiberB).join
+      promise <- Promise.make[Nothing /* error type */, String /* result type */] // create a promise
+
+      sendString: ZIO[Any, Nothing, Boolean] = (ZIO.succeed("hello world") <* ZIO.sleep(1.second)).flatMap(s => promise.succeed(s)) // complete the promise after 1 sec
+      getAndPrint: ZIO[Any, IOException, Unit] = promise.await.flatMap(s => printLine(s))// await for the promise and print the result
+
+      fiberB <- getAndPrint.fork //printing is waiting until we succeed the promise
+      fiberA <- sendString.fork // we succeed the promise
+      _ <- (fiberA <*> fiberB).join // no need to interrupt as it's not running forever, must before the app ends, I want to go back with all the printing to main fiber
     } yield ()
 }
 
