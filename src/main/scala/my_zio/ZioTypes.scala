@@ -214,6 +214,10 @@ object NumberGuesser extends ZIOAppDefault {
 
 }
 
+/**
+ * TO REMEMBER: When we have some code/effect which is blocking the thread/fiber, enclose it in ZIO.blocking ...
+ * this will
+ */
 object BlockingSideEffects extends ZIOAppDefault {
   import Console._
   import Duration._
@@ -232,11 +236,10 @@ object SeparatingBlockingEffectButNotInterrupting extends ZIOAppDefault {
 
   def run =
     for {
-      _     <- printLine("Start blocking operation")
-      fiber <- ZIO.attemptBlocking { // when we interrupt ZIO.attemptBlocking{} it will still NOT STOP. It will stop when JVM stops !!!
+      fiber <- ZIO.attemptBlocking { // REMEMBER: when we interrupt ZIO.attemptBlocking{} it will still NOT STOP. It will stop when JVM stops !!!
                 while (true) {
                   Thread.sleep(200)
-                  println("Doing some blocking operation")
+                  println("loop")
                 }
               }.ensuring(printLine("End of a blocking operation - WILL NEVER BE PRINTED").orDie) // or I can use: onInterrupt()
                .fork
@@ -257,13 +260,13 @@ object InterruptingBlockingEffect extends ZIOAppDefault {
   def run =
     for {
       _     <- printLine("Start blocking operation")
-      fiber <- ZIO.attemptBlockingInterrupt{ // this can be interrupted :)
+      fiber <- ZIO.attemptBlockingInterrupt{ // REMEMBER: this can be interrupted :)
                 while (true) {
                   Thread.sleep(200)
-                  println("Doing some blocking operation")
+                  println("loop")
                 }
               }.onInterrupt(printLine("End of a blocking operation").orDie)
-                .fork
+               .fork
       _ <- ZIO.sleep(1.seconds)
       _ <- fiber.interrupt
     } yield ()
@@ -461,7 +464,7 @@ object SyncPrintingRef extends ZIOAppDefault {
       actualRef <- ref.get
 //      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.unit
       _ <-ZIO.ifZIO(ZIO.succeed(actualRef == expectedRef))(onTrue = print(s) *> ref.update(!_), onFalse =  ZIO.unit)
-//    _ <- ZIO.sleep(100.millisecond)
+    _ <- ZIO.sleep(50.millisecond)
     } yield ()
 
   def run: ZIO[Any, IOException, Unit] = {
