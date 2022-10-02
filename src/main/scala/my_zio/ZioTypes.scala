@@ -530,10 +530,11 @@ object PromiseExample extends ZIOAppDefault {
     for {
       promise <- Promise.make[Nothing /* error type */, String /* result type */] // create a promise
 
-      sendString: ZIO[Any, Nothing, Boolean] = (ZIO.succeed("hello world") <* ZIO.sleep(1.second)).flatMap(s => promise.succeed(s)) // complete the promise after 1 sec
-      getAndPrint: ZIO[Any, IOException, Unit] = promise.await.flatMap(s => printLine(s))// await for the promise and print the result
+      sendString: ZIO[Any, Nothing, Boolean] = promise.succeed("Yaay !") // complete the promise immediately
+      getAndPrint: ZIO[Any, IOException, Unit] = promise.await.flatMap(s => printLine("got the promise: " + s))// await for the promise and print the result
 
       fiberB <- getAndPrint.fork //printing is waiting until we succeed the promise
+      _ <- printLine("waiting for the promise... ") *> ZIO.sleep(2.seconds)
       fiberA <- sendString.fork // we succeed the promise
       _ <- (fiberA <*> fiberB).join // no need to interrupt as it's not running forever, must before the app ends, I want to go back with all the printing to main fiber
     } yield ()
