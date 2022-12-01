@@ -142,9 +142,9 @@ object PromptName extends ZIOAppDefault {
 
   def forComprehension: ZIO[Any, IOException, Unit] =
     for {
-      _ <- printLine("what is you name ?")
+      _ <- printLine("what's your name ?")
       name <- readLine
-      _ <- printLine(s"hello $name")
+      _ <- printLine("hello "+name)
     } yield ()
 
 }
@@ -192,7 +192,6 @@ object ParallelOperations extends ZIOAppDefault {
 object NumberGuesser extends ZIOAppDefault {
 
   import Console._
-  import Random._
 
   def tryToGuess(correctNumber: Int): ZIO[Any, IOException, Unit] =
     for {
@@ -207,7 +206,7 @@ object NumberGuesser extends ZIOAppDefault {
 
   def run: ZIO[Any, IOException, Unit] = {
     for {
-      randomInt <- nextIntBetween(1, 11) // from zio.Random
+      randomInt <- Random.nextIntBetween(1, 11) // from zio.Random
       _ <- tryToGuess(randomInt)
     } yield ()
   }
@@ -223,8 +222,8 @@ object BlockingSideEffects extends ZIOAppDefault {
   import Duration._
   override def run: ZIO[Any, Throwable, Unit] = {
     printLine("hello") *>
-    ZIO.attemptBlocking(Thread.sleep(1000)) *> // ZIO.attemptBlocking( nonEffectual  ) - makes sure it's executed in a separate thread pool for potential blockers.
-    printLine("1 sec just passed") *>
+    ZIO.attemptBlocking(Thread.sleep(3000)) *> // ZIO.attemptBlocking( nonEffectual  ) - makes sure it's executed in a separate thread pool for potential blockers.
+    printLine("3 seconds just passed") *>
     ZIO.blocking(ZIO.sleep(1.seconds) *> printLine("... and another one")) // ZIO.blocking( effectual )   - the same but it takes effectual argument
   }
 }
@@ -320,13 +319,13 @@ object Aspects extends ZIOAppDefault {
   import Duration._
   import Random._
 
-  def intPassOrFail(passPercentage: Int) = {
+  def intPassOrFail(passPercentage: Int): ZIO[Any, IOException, String] = {
     nextIntBetween(0, 100)
       .flatMap(random => if (random < passPercentage) printLine("ok") *> ZIO.succeed("hello") else printLine("error") *> ZIO.fail(new IOException("boom")))
   }
 
   override def run =
-    intPassOrFail(5) @@
+    intPassOrFail(15) @@
       ZIOAspect.retry(Schedule.fibonacci(100.milliseconds)) @@ //slower and slower
       ZIOAspect.logged("Successful computation") @@
       ZIOAspect.loggedWith[String](msg => s"Final result: ${msg}")
@@ -448,8 +447,8 @@ object SyncPrinting extends ZIOAppDefault {
   import Duration._
   import java.io.IOException
 
-  val printA: ZIO[Any, IOException, Nothing] = printLine("A ") *> ZIO.sleep(500.milliseconds) *> printB
-  val printB: ZIO[Any, IOException, Nothing] = printLine("B ") *> ZIO.sleep(500.milliseconds) *> printA
+  val printA: ZIO[Any, IOException, Unit] = printLine("A ") *> ZIO.sleep(500.milliseconds) *> printB
+  val printB: ZIO[Any, IOException, Unit] = printLine("B ") *> ZIO.sleep(500.milliseconds) *> printA
 
   def run: ZIO[Any, IOException, Unit] = printA
 }
@@ -464,25 +463,21 @@ object SyncPrintingRef extends ZIOAppDefault {
 
   import Console._
   import Duration._
-  import java.io.IOException
 
-  def printSyncOnRef(expectedRef: Boolean, ref: Ref[Boolean], s: String): ZIO[Any, IOException, Unit] =
-    for {
-      actualRef <- ref.get
-//      _ <- if (actualRef == expectedRef) print(s) *> ref.update(!_) else ZIO.unit
-      _ <-ZIO.ifZIO(ZIO.succeed(actualRef == expectedRef))(onTrue = print(s) *> ref.update(!_), onFalse =  ZIO.unit)
-    _ <- ZIO.sleep(50.millisecond)
-    } yield ()
+  def printSyncOnRef(expected: Boolean, toPrint:String, ref: Ref[Boolean]) = for {
+    actual <-ref.get
+    _ <- if(actual == expected) print(toPrint) <* ref.update(!_) else ZIO.unit
+    _ <- ZIO.sleep(100.milliseconds)
+  } yield()
 
   def run: ZIO[Any, IOException, Unit] = {
     for {
-      ref <- Ref.make(true)
-      fiberA <- printSyncOnRef(true, ref, "o ").forever.fork // it forks this effect into its own separate fiber,
-      fiberB <- printSyncOnRef(false, ref, "| ").forever.fork // it forks this effect into its own separate fiber,
-      _ <- ZIO.sleep(1.seconds)
+      ref <- Ref.make[Boolean](true)
+      f1 <- printSyncOnRef(true, "o ", ref).forever.fork
+      f2 <- printSyncOnRef(false, "| ", ref).forever.fork
+      _ <- ZIO.sleep(2.seconds)
       _ <- printLine("Time's up !")
-      _ <- fiberA.interrupt
-      _ <- fiberB.interrupt
+      _ <- (f1 <*> f2).interrupt
     } yield ()
   }
 }
